@@ -102,7 +102,7 @@ newTest[is.na(newTest)]&lt;-0</code></pre>
 </div>
 <div id="building-the-predictive-model" class="section level3">
 <h3>Building the Predictive Model</h3>
-<p>Several models were fit to the training set, using <code>total_accel_belt</code>, <code>roll_dumbbell</code>, <code>pitch_dumbbell</code>, <code>yaw_dumbbell</code>,<code>roll_arm</code>,<code>pitch_arm</code>,<code>yaw_arm</code>,<code>roll_forearm</code>, <code>pitch_forearm,</code> and <code>yaw_forearm</code> as the predictor variables. Several algorithm types, including bagging, randomw forests, and boosting, and different cross validation methods (including leave one out cross validation and repeated cross validation) were run.</p>
+<p>Several models were fit to the training set, using <code>total_accel_belt</code>, <code>roll_dumbbell</code>, <code>pitch_dumbbell</code>, <code>yaw_dumbbell</code>,<code>roll_arm</code>,<code>pitch_arm</code>,<code>yaw_arm</code>,<code>roll_forearm</code>, <code>pitch_forearm,</code> and <code>yaw_forearm</code> as the predictor variables. Several algorithm types, including bagging, random forests, and boosting, and different cross validation methods (including leave one out cross validation and repeated cross validation) were run.</p>
 <p>The best model, which exhibited greater than 95% accuracy for all validation classes (as shown below), was created using a <strong>random forest approach using an out of bag (oob) error estimate</strong>.</p>
 <pre class="r"><code>train_control7&lt;-trainControl(method=&quot;oob&quot;, 
                              classProbs=TRUE, 
