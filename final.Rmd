@@ -1,0 +1,191 @@
+###Practical Machine Learning: Course Project
+
+###Executive Summary
+
+The goal of this project is build a machine learning algorithm using a testing set consisting of measurements of arm, forearm, body, and dumbbell 3-D motion (pitch, yaw, and roll) and acceleration during repetitions of a bicep curl exercise performed in five different ways (A-E), by six experimental subjects (with each subject repeating each exercise type ten times). 
+
+The original training dataset was further subdivided into a training and validation dataset, for the purpose of cross validation and to permit the calculation of in-sample error on the validation set and an estimation of out-of-sample error.
+
+Finally, this algorithm was then used to predict whether twenty exercises in a separate testing set should be classified as A-E.
+
+All steps of this process, including loading, cleaning, and exploratory analysis of the data, along with the model building process on the training set and the model accuracy assessment on the validation set, are described in the sections that follow.
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+require(ggplot2)
+require(rattle)
+require(rpart.plot)
+require(caret)
+require(randomForest)
+```
+
+###Loading the Data
+
+The training set and the testing set were loaded from the course website using the following code:
+```{r, echo=TRUE, eval=FALSE}
+## Download the training set.
+if (!file.exists("data")) {
+      dir.create("data")
+}
+fileUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv?accessType=DOWNLOAD"
+download.file(fileUrl, destfile="./data/train.csv", method="curl")
+dateDownloaded<-date()
+
+## Download the testing set.
+if (!file.exists("data")) {
+      dir.create("data")
+}
+fileUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv?accessType=DOWNLOAD"
+download.file(fileUrl, destfile="./data/test.csv", method="curl")
+dateDownloaded<-date()
+```
+
+Then, the training data and the testing data were read into the R environment using the ```read.table``` function, to create the ```trainData``` and ```testData``` dataframes, respectively. 
+```{r, echo=TRUE}
+trainData<-read.table("./data/train.csv", sep=",", header=TRUE)
+testData<-read.table("./data/test.csv", sep=",", header=TRUE)
+```
+
+###Brief Description of the Data###
+
+```trainData``` and ```testData``` consist of kinematic measurements made when research subjects performed a bicep curl exercise. However, ```testData``` was set aside and not examined in any part of the following pre-processing steps.
+
+To collect the data, the research subjects wore motion capture sensors on their forearms, upper arms, and around their waists; the barbell was also wired with a motion capture sensor. Because each sensor contained a gyroscope, the measurements for each sensor were expressed as three-dimensional motion; specifically, roll, pitch, and yaw. In addition, summary measurements were calculated, such as average, standard deviation, kurtosis, and skewness. The result is that ```trainData``` and ```testData``` contain a total of 159 potential predictor variables (the outcome variable in ```trainData``` is the ```classe``` variable). 
+
+The A-E values of the ```classe``` outcome variable translate to the different ways the bicep curl exercise was performed:
+
+- "A" performed the exercise totally correctly (implying that the hips are motionless; the upper arm is held in a fixed position with the humerus parallel to the trunk of the body and perpendicular to the floor throughout the entire exercise);
+- "B" throwing the elbows to the front;
+- "C" lifting the dumbbell only halfway;
+- "D" lowering the dumbbell only halfway;
+- "E" throwing the hips to the front.
+
+###Pre-Processing the Data###
+Before the data were pre-processed to faciliate building a model, the initial training set ```trainData``` was split into ```newTrain``` and ```newTest``` datasets.
+
+```{r, echo=TRUE}
+set.seed(444)
+inTrain<-createDataPartition(y=trainData$classe, p=0.7, list=FALSE)
+
+newTrain<-trainData[inTrain, ]
+newTest<-trainData[-inTrain, ]
+```
+
+
+All pre-processing decisions were made after examining ```newTrain``` only (although all pre-processing steps were applied to both ```newTrain``` and ```newTest```.) Exploratory analysis and model building were conducted on ```newTrain``` only. ```newTest``` was then used as a validation set to evaluate the model.
+
+Examining the data in ```newTrain``` revealed many variables with values of NA for the majority of rows in the dataset. This is problematic because these NAs will cause some model building methods to fail. Therefore, NAs were replaced with zeroes to maximize the number of variables that can be used to create the machine learning algorithm. Then, all predictor variables were set to numeric class.
+
+```{r, echo=TRUE}
+classe<-newTrain$classe
+user_name<-newTrain$user_name
+predictor.varsTrain<-sapply(newTrain, is.numeric)
+newTrain<-cbind(user_name, newTrain[,predictor.varsTrain], classe)
+newTrain[is.na(newTrain)]<-0
+```
+
+The same pre-processing steps were done for ```newTest```, although these data were not viewed.
+```{r, echo=TRUE}
+classe<-newTest$classe
+user_name<-newTest$user_name
+predictor.varsTest<-sapply(newTest, is.numeric)
+newTest<-cbind(user_name, newTest[,predictor.varsTest], classe)
+newTest[is.na(newTest)]<-0
+```
+
+
+
+###Exploratory Data Analysis
+```newTrain``` was then evaluated by making a series of exploratory plots to identify a set of variables that allow the A-E values of ```classe``` to be separated from one another. First, a pairs plot was made, using the simplest and most intuitive of the kinematic measurements:  ```roll_dumbbell```, ```pitch_dumbbell```, ```yaw_dumbbell```, ```roll_arm```, ```pitch_arm```, ```yaw_arm```, ```total_accel_belt```, ```roll_forearm```, ```pitch_forearm```, and ```yaw_forearm```. 
+
+A pairs plot showing the relationships among these variables indicates that different combinations of these variables are able to separate different exercise classes with varying success; see, for example, the plot of ```roll_dumbbell``` versus ```pitch_forearam``` below:
+
+```{r, echo=FALSE, fig.height=4, fig.width=5}
+qplot(pitch_forearm,  roll_dumbbell, colour=classe, 
+      data=newTrain, size=I(5))
+```
+
+Before building the model, I also determined which combinations of variables seemed the most sensitive due to differences in how the individual research subjects performed exercises of a given class. For example, the following plots show that the variable ```amplitude_pitch_belt``` clearly splits the ```classe``` values E and D according to user name, suggesting that this variable should *not* be included in the predictive model (even though ```amplitude_pitch_belt```, when plotted against ```avg_roll_dumbbell``` seems to do a great job of separating Class E from the other exercise types -- which makes sense, as exercise E involves moving the trunk of the body while exercises A-D do not). 
+```{r, echo=FALSE, fig.height=4, fig.width=5}
+qplot(total_accel_belt,  amplitude_pitch_belt, colour=classe, 
+      shape=user_name, data=newTrain, size=I(5))
+```
+
+```{r, echo=FALSE, fig.height=4, fig.width=5}
+#Class E and D are in two distinctly separated clouds according to user_name.
+
+qplot(amplitude_pitch_belt, avg_roll_dumbbell, colour=classe, 
+       shape=user_name, data=newTrain, size=I(5))
+```
+
+While principal components analysis (PCA) could reduce the number of variables in the dataset, I chose to not conduct PCA so that the final model would be built using variables that are intuitive. The aim of collecting these data, after all, is to quantify exercise performance; therefore, I suggest that the most applicable predictive model for these data will rely on predictors that have intuitive physical meaning (yaw, pitch, roll, and straight-line acceleration), even if some model accuracy is sacrificed.
+
+
+###Building the Predictive Model
+
+Several models were fit to the training set, using ```total_accel_belt```, ```roll_dumbbell```, ```pitch_dumbbell```, ```yaw_dumbbell```,```roll_arm```,```pitch_arm```,```yaw_arm```,```roll_forearm```, ```pitch_forearm,``` and ```yaw_forearm``` as the predictor variables. Several algorithm types, including bagging, randomw forests, and boosting, and different cross validation methods (including leave one out cross validation and repeated cross validation) were run. 
+
+The best model, which exhibited greater than 95% accuracy for all validation classes (as shown below), was created using a **random forest approach using an out of bag (oob) error estimate**. 
+
+```{r, echo=TRUE, eval=TRUE}
+train_control7<-trainControl(method="oob", 
+                             classProbs=TRUE, 
+                             summaryFunction=twoClassSummary)
+
+modFit7<-train(classe~total_accel_belt+
+                     roll_dumbbell+
+                     pitch_dumbbell+
+                     yaw_dumbbell+
+                     roll_arm+
+                     pitch_arm+
+                     yaw_arm+
+                     roll_forearm+
+                     pitch_forearm+
+                     yaw_forearm,
+               data=newTrain,
+               method="rf",
+               trControl=train_control7,
+               tuneLength=15,
+               metric="Accuracy",
+               keep.forest=TRUE)
+
+```
+
+
+###Evaluating the Model's Performance (In-sample error and out-of-sample error)
+Plotting the model's accuracy against the number of trees produced by the random forests method illustrates that the model is over 95% accurate (balanced accuracy for each ```classe``` value is between 95% and 97%):
+
+```{r, echo=FALSE, fig.width=5, fig.height=4}
+plot(modFit7, log="y")
+```
+
+Then, the best model ```modFit7``` is applied to the validation set ```newTest```, and the model's performance on the validation set is evaluated.
+```{r, echo=FALSE}
+pred.ans7<-as.character(predict(modFit7, newdata=newTest))
+obs.ans7<-as.character(newTest$classe)
+```
+
+A confusion matrix for the predicted and observed values of ```classe``` in ```newTest``` illustrates the model's accuracy of at least 95% for each value of ```classe```, with some values of ```classe``` having an accuracy of 97%, indicating an error rate of 3%-5%. 
+```{r, echo=FALSE}
+confusionMatrix(pred.ans7, obs.ans7)
+```
+
+Further, applying the model to the validation set ```newTest``` shows exactly which exercise types were misclassified. While the model's accuracy is not perfect, at least the model does not show bias -- that is, no particular ```classe``` value experiences markedly worse accuracy than the other values, as captured by the 98-99% specificity for each (see model statistics shown above).
+```{r, echo=FALSE}
+table(pred.ans7, obs.ans7)
+```
+
+
+The ```varImp``` function reveals the variables of the predictive model that have the greatest impact on the outcome variable ```classe```. As shown below, the ```pitch_forearm```, ```roll_forearm```, ```roll_dumbbell```, and ```total_accel_belt``` variables are the most significant in the model. 
+```{r, echo=FALSE}
+varImp(modFit7)
+```
+
+
+###Applying the Best Model to the Testing Data Set
+When the best model was applied to ```testData```, 19 out of 20 cases were correctly predicted, yielding an *observed* out-of-sample error rate of:  1-0.95=0.05, or 5%. This agrees well with the *estimated* out-of-sample error rate obtained by applying the model to the validation set (95%-97% accuracy; 3%-5% out-of-sample error rate). 
+
+(Note that a previous model version built using random forest with leave-one-out cross validation correctly identified the single mis-classified case in ```trainData```, but exhibited overall lower accuracy than the best model ```modFit7``` that was finally selected.)
+
+
+
+
